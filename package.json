@@ -1,0 +1,22 @@
+{
+  "name": "caresetu",
+  "version": "1.0.0",
+  "description": "Voice-First Agentic AI Healthcare Coordinator for Elders",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "preview": "npm --prefix frontend run preview",
+    "backend": "python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload"
+  },
+  "keywords": [
+    "agentic-ai",
+    "healthcare",
+    "elderly-care",
+    "bolna-ai",
+    "gemini",
+    "hackathon"
+  ],
+  "author": "CareSetu Team",
+  "license": "MIT"
+}
