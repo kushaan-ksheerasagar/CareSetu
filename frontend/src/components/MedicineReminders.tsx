@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Clock, Plus, CheckCircle2, Circle, Pill, Sparkles, X } from 'lucide-react';
+import { Clock, Plus, CheckCircle2, Circle, Pill, X } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { MedicineReminder } from '../types';
 

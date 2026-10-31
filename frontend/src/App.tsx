@@ -9,8 +9,11 @@ import { DoctorAppointments } from './components/DoctorAppointments';
 import { PrivacySafetyModal } from './components/PrivacySafetyModal';
 import { SettingsModal } from './components/SettingsModal';
 import { apiService } from './services/api';
-import { CareSetuState, AgentReasoningResult, AvailableDoctorSlot, PreviousOrder } from './types';
-import { Clock, Shield, Calendar, Heart, Activity, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Clock, Activity } from 'lucide-react';
+import type { CareSetuState, AgentReasoningResult, AvailableDoctorSlot, PreviousOrder } from './types';
+
+
+
 
 export const App: React.FC = () => {
   const [state, setState] = useState<CareSetuState>(() => apiService.getSavedState());
@@ -115,43 +118,22 @@ export const App: React.FC = () => {
 
   // Request Priya's Approval
   const handleRequestGuardianApproval = async () => {
-    const nextState: CareSetuState = JSON.parse(JSON.stringify(state));
     const approvalId = `APPR-${Date.now().toString().slice(-5)}`;
-
-    const newApproval = {
-      id: approvalId,
-      action_type: 'medicine_order_refill',
-      title: 'Monthly Medicine Refill (Amlong 5 + Glycomet 500 SR)',
-      details: {
-        total_amount: state.cart.total || 150.0,
-        items: state.cart.items
+    const updatedState = await apiService.requestGuardianApproval(
+      {
+        approval_id: approvalId,
+        action_type: 'medicine_order_refill',
+        title: 'Monthly Medicine Refill (Amlong 5 + Glycomet 500 SR)',
+        details: {
+          total_amount: state.cart.total || 150.0,
+          items: state.cart.items
+        },
+        reason: `Ramachandra ji requested the same medicine ordered last month. Please authorize refill of ₹${(state.cart.total || 150.0).toFixed(2)}.`
       },
-      reason: 'Ramachandra ji requested the same medicine ordered last month. Please authorize purchase of ₹150.00.',
-      guardian_name: state.guardian.name,
-      guardian_phone: state.guardian.phone,
-      status: 'pending' as const,
-      created_at: 'Just now'
-    };
+      state
+    );
 
-    nextState.guardian.pending_approvals.unshift(newApproval);
-    nextState.guardian.notifications.unshift({
-      id: `NOTIF-${Date.now()}`,
-      timestamp: 'Just now',
-      title: 'Refill Authorization Request',
-      message: `Ramachandra ji requested monthly medicine refill (₹${state.cart.total.toFixed(2)}). Your approval is requested.`,
-      priority: 'high',
-      read: false
-    });
-    nextState.activity_log.unshift({
-      id: `ACT-${Date.now()}`,
-      time: 'Just now',
-      title: 'Guardian Approval Requested',
-      description: `Refill authorization sent to ${state.guardian.name} (${state.guardian.phone}).`,
-      type: 'approval'
-    });
-
-    setState(nextState);
-    apiService.saveState(nextState);
+    setState(updatedState);
     setShowOrderModal(false);
   };
 

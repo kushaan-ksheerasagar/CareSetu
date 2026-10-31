@@ -163,87 +163,62 @@ async def run_agentic_reasoning(
     """
     api_key = custom_gemini_api_key or os.environ.get("GEMINI_API_KEY", "").strip()
     
-    # Try Gemini with function calling if API key is available
+    # Try Gemini with native function calling if API key is available
     if api_key:
         try:
             import google.generativeai as genai
             genai.configure(api_key=api_key)
             
-            # Use gemini-1.5-flash or gemini-2.0-flash
+            # Attach actual Python functions from registry for native Gemini function calling
+            tools_list = list(HEALTHCARE_TOOLS_REGISTRY.values())
+            
             model = genai.GenerativeModel(
                 model_name="gemini-1.5-flash",
+                tools=tools_list,
                 system_instruction=SYSTEM_PROMPT
             )
             
-            # Provide prompt requesting structured agentic execution
-            instruction = f"""
-User said: "{user_message}"
-Language preference: {language}
-
-You must respond with a JSON object adhering to this schema:
-{{
-  "intent": "<detected intent>",
-  "plan": [
-    "Step 1: ...",
-    "Step 2: ...",
-    "Step 3: ..."
-  ],
-  "tool_calls": [
-    {{
-      "tool_name": "get_previous_medicine_orders | search_medicine | prepare_medicine_cart | create_medicine_reminder | find_doctor_appointments | request_guardian_approval | send_guardian_notification",
-      "arguments": {{ ... }}
-    }}
-  ],
-  "explanation": "<warm, spoken response for elderly user in {language}>",
-  "requires_authorization": true | false,
-  "authorization_details": {{ "type": "...", "summary": "..." }} (optional)
-}}
-
-Available tools:
-- get_previous_medicine_orders(patient_id)
-- search_medicine(query, category)
-- prepare_medicine_cart(items: [{{name, dosage, quantity, price}}])
-- create_medicine_reminder(medicine_name, time_slot, dosage, timing_label)
-- find_doctor_appointments(speciality, preferred_date)
-- request_guardian_approval(action_type, details, reason)
-- send_guardian_notification(message, priority)
-
-Respond with valid JSON only.
-"""
-            response = model.generate_content(instruction)
-            text = response.text.strip()
-            # Clean possible markdown fencing
-            if text.startswith("```json"):
-                text = text[7:]
-            if text.startswith("```"):
-                text = text[3:]
-            if text.endswith("```"):
-                text = text[:-3]
-            text = text.strip()
+            # Start chat with automatic function calling enabled
+            chat = model.start_chat(enable_automatic_function_calling=True)
+            prompt = f"User said: '{user_message}'. Please coordinate their healthcare request in {language}. If this involves preparing a medicine refill or booking an appointment, remind them that human authorization is required."
             
-            agent_plan = json.loads(text)
+            response = chat.send_message(prompt)
             
-            # Execute tools in the plan
+            # Extract executed tool calls from chat history
             executed_tools = []
-            for tc in agent_plan.get("tool_calls", []):
-                t_name = tc.get("tool_name")
-                t_args = tc.get("arguments", {})
-                res = execute_tool_call(t_name, t_args)
-                executed_tools.append({
-                    "tool_name": t_name,
-                    "arguments": t_args,
-                    "result": res
-                })
-                
+            for message in chat.history:
+                for part in message.parts:
+                    fn_call = getattr(part, 'function_call', None)
+                    fn_resp = getattr(part, 'function_response', None)
+                    if fn_call:
+                        executed_tools.append({
+                            "tool_name": fn_call.name,
+                            "arguments": dict(fn_call.args) if hasattr(fn_call, 'args') else {},
+                            "result": dict(fn_resp.response) if fn_resp and hasattr(fn_resp, 'response') else {"status": "executed"}
+                        })
+            
+            # Check if any sensitive tool was executed requiring authorization
+            requires_auth = any(
+                t["tool_name"] in ("prepare_medicine_cart", "find_doctor_appointments", "request_guardian_approval")
+                for t in executed_tools
+            )
+            
             db = get_db()
             return {
-                "source": "gemini_model",
-                "intent": agent_plan.get("intent", "Healthcare coordination"),
-                "plan": agent_plan.get("plan", []),
+                "source": "gemini_model: gemini-1.5-flash (Live Google AI Native Function Calling)",
+                "intent": "Healthcare Coordination (Gemini Live Agent)",
+                "plan": [
+                    f"Plan step {i+1}: Executed native function call '{t['tool_name']}'"
+                    for i, t in enumerate(executed_tools)
+                ] or ["Step 1: Analyzed user request with Gemini", "Step 2: Formulated clinical coordination response"],
                 "executed_tools": executed_tools,
-                "speech_response": agent_plan.get("explanation", "I have coordinated your request, Ramachandra ji."),
-                "requires_authorization": agent_plan.get("requires_authorization", False),
-                "authorization_details": agent_plan.get("authorization_details"),
+                "speech_response": response.text.strip(),
+                "requires_authorization": requires_auth,
+                "authorization_details": {
+                    "type": "medicine_order_refill" if any(t["tool_name"] == "prepare_medicine_cart" for t in executed_tools) else "general",
+                    "total_amount": db.get("cart", {}).get("total", 150.0),
+                    "items": db.get("cart", {}).get("items", [])
+                } if requires_auth else None,
                 "updated_state": {
                     "cart": db.get("cart"),
                     "reminders": db.get("reminders"),
@@ -253,7 +228,7 @@ Respond with valid JSON only.
                 }
             }
         except Exception as e:
-            logger.warning(f"Gemini live call error: {e}. Falling back to deterministic agent reasoning.")
+            logger.warning(f"Gemini live function call exception: {e}. Falling back to deterministic agent reasoning.")
     
     # Deterministic Agentic Fallback: Executes real tools based on semantic pattern matching
     return run_deterministic_agent_reasoning(user_message, language)

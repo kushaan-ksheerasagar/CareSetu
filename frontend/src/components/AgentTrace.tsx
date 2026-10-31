@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Cpu, CheckCircle2, ChevronDown, ChevronUp, Terminal, ShieldAlert, Sparkles, Layers, ArrowRight } from 'lucide-react';
+import { Cpu, CheckCircle2, ChevronDown, ChevronUp, Terminal, ShieldAlert, Sparkles, Layers } from 'lucide-react';
 import { AgentReasoningResult } from '../types';
 
 interface AgentTraceProps {

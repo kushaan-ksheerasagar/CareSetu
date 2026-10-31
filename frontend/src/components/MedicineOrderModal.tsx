@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Package, ShieldCheck, CheckCircle2, UserCheck, AlertCircle, ShoppingBag, MapPin, Building, ArrowRight, X } from 'lucide-react';
+import { Package, ShieldCheck, UserCheck, AlertCircle, ShoppingBag, MapPin, ArrowRight, X } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { CartState, PreviousOrder } from '../types';
 

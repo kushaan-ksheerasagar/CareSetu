@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Volume2, Sparkles, Send, Bot, User, Radio, ArrowRight, CornerDownLeft } from 'lucide-react';
+import { Mic, MicOff, Volume2, Sparkles, Send, Bot, User, Radio, ArrowRight } from 'lucide-react';
 import { speechService } from '../services/speechService';
 import { bolnaService } from '../services/bolnaWebCall';
 
@@ -62,22 +62,10 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, currentTranscript]);
 
-  const handleStartListening = () => {
-    if (isListening) {
-      speechService.stopListening();
-      setIsListening(false);
-      return;
-    }
+  const [bolnaStatusNotice, setBolnaStatusNotice] = useState<string | null>(null);
 
-    if (isSpeaking) {
-      speechService.stopSpeaking();
-      setIsSpeaking(false);
-    }
-
-    // If Bolna is active, we can initiate web call or speech
-    setCurrentTranscript('');
+  const fallbackToWebSpeech = () => {
     setIsListening(true);
-
     speechService.startListening(
       (transcript, isFinal) => {
         setCurrentTranscript(transcript);
@@ -94,6 +82,62 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
         setIsListening(false);
       }
     );
+  };
+
+  const handleStartListening = () => {
+    if (isListening) {
+      if (bolnaActive) {
+        bolnaService.stopWebCall();
+      }
+      speechService.stopListening();
+      setIsListening(false);
+      return;
+    }
+
+    if (isSpeaking) {
+      speechService.stopSpeaking();
+      setIsSpeaking(false);
+    }
+
+    setCurrentTranscript('');
+    setBolnaStatusNotice(null);
+
+    // If Bolna Live Web Call mode is enabled
+    if (bolnaActive) {
+      setIsListening(true);
+      const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+      bolnaService.startWebCall(
+        `${API_BASE}/api/bolna-session`,
+        {
+          patient_name: "Ramachandra Rao",
+          patient_age: 72,
+          location: "Bengaluru, India"
+        },
+        {
+          onStateChange: (st) => {
+            if (st === 'active') {
+              setIsListening(true);
+            } else if (st === 'ended' || st === 'idle') {
+              setIsListening(false);
+            }
+          },
+          onError: (err) => {
+            console.warn("Bolna Web Call status:", err);
+            setBolnaStatusNotice(err || "Bolna credentials not active. Switched to transparent Demo Voice Mode.");
+            fallbackToWebSpeech();
+          },
+          onCallEnd: () => {
+            setIsListening(false);
+          }
+        }
+      ).catch(() => {
+        fallbackToWebSpeech();
+      });
+      return;
+    }
+
+    // Default High-Fidelity Demo Voice Mode (Web Speech API)
+    fallbackToWebSpeech();
   };
 
   const submitMessage = async (text: string) => {
@@ -286,6 +330,13 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
             ? "CareSetu is answering..."
             : "Tap the big microphone and speak in your comfortable pace."}
         </p>
+
+        {/* Bolna Status Notice when fallback occurs */}
+        {bolnaStatusNotice && (
+          <div className="mt-3 px-4 py-2 rounded-xl bg-amber-50 text-amber-900 border border-amber-200 text-xs font-semibold text-center max-w-lg animate-fade-in">
+            {bolnaStatusNotice}
+          </div>
+        )}
 
         {/* Live speech interim bubble */}
         {currentTranscript && (

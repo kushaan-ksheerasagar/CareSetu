@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, Lock, AlertTriangle, EyeOff, UserCheck, X, Check } from 'lucide-react';
+import { ShieldCheck, Lock, AlertTriangle, EyeOff, UserCheck, X } from 'lucide-react';
 
 interface PrivacySafetyModalProps {
   isOpen: boolean;

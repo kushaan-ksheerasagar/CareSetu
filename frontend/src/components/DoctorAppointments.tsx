@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Calendar, Stethoscope, Clock, MapPin, CheckCircle, ChevronRight, User } from 'lucide-react';
+import { Calendar, Stethoscope, MapPin, ChevronRight } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Appointment, AvailableDoctorSlot } from '../types';
 

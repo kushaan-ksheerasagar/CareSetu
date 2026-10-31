@@ -77,7 +77,15 @@ def prepare_medicine_cart(items: List[Dict[str, Any]]) -> Dict[str, Any]:
         dosage = item.get("dosage") or (med["dosage"] if med else "")
         price = float(item.get("price") or (med["price"] if med else 0.0))
         quantity = int(item.get("quantity") or 1)
-        item_total = price * quantity
+        
+        # Determine number of packs from tablet count and pack_size
+        pack_size = (med.get("pack_size") if med else None) or 1
+        if quantity > 5 and pack_size > 1:
+            packs = max(1, round(quantity / pack_size))
+        else:
+            packs = quantity
+            
+        item_total = price * packs
         subtotal += item_total
         
         cart_items.append({
@@ -85,6 +93,7 @@ def prepare_medicine_cart(items: List[Dict[str, Any]]) -> Dict[str, Any]:
             "name": name,
             "dosage": dosage,
             "quantity": quantity,
+            "packs": packs,
             "price_per_pack": price,
             "item_total": item_total,
             "prescription_required": med.get("prescription_required", True) if med else True

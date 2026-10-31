@@ -51,6 +51,15 @@ class ReasonRequest(BaseModel):
 class BolnaSessionRequest(BaseModel):
     user_data: Optional[Dict[str, Any]] = None
 
+class RequestApprovalPayload(BaseModel):
+    action_type: str
+    title: Optional[str] = None
+    details: Dict[str, Any]
+    reason: str
+    approval_id: Optional[str] = None
+    guardian_name: Optional[str] = "Priya Rao"
+    guardian_phone: Optional[str] = "+91 98450 12345"
+
 class ApprovalActionRequest(BaseModel):
     approval_id: str
     decision: str  # "approved" or "rejected"
@@ -138,6 +147,60 @@ async def agent_reason_endpoint(payload: ReasonRequest):
     )
     return reasoning_result
 
+@app.post("/api/guardian/request-approval")
+def request_approval_endpoint(payload: RequestApprovalPayload):
+    """
+    Registers a new pending authorization request for the guardian.
+    Keeps frontend and backend state synchronized.
+    """
+    db = get_db()
+    guardian = db.get("guardian", {})
+    pending_approvals = guardian.setdefault("pending_approvals", [])
+    
+    appr_id = payload.approval_id or f"APPR-{uuid.uuid4().hex[:6].upper()}"
+    timestamp = datetime.datetime.now().strftime("%I:%M %p Today")
+    
+    approval_entry = {
+        "id": appr_id,
+        "action_type": payload.action_type,
+        "title": payload.title or f"Approval Request: {payload.action_type.replace('_', ' ').title()}",
+        "details": payload.details,
+        "reason": payload.reason,
+        "guardian_name": payload.guardian_name or guardian.get("name", "Priya Rao"),
+        "guardian_phone": payload.guardian_phone or guardian.get("phone", "+91 98450 12345"),
+        "status": "pending",
+        "created_at": timestamp
+    }
+    
+    # Prepend to pending approvals
+    pending_approvals.insert(0, approval_entry)
+    
+    # Notify guardian
+    guardian.setdefault("notifications", []).insert(0, {
+        "id": f"NOTIF-{uuid.uuid4().hex[:6]}",
+        "timestamp": timestamp,
+        "title": f"Action Needs Authorization: {payload.action_type.replace('_', ' ').title()}",
+        "message": f"Ramachandra ji requested {payload.reason}. Please review and approve.",
+        "priority": "high",
+        "read": False
+    })
+    
+    db.setdefault("activity_log", []).insert(0, {
+        "id": f"ACT-{uuid.uuid4().hex[:6]}",
+        "time": "Just now",
+        "title": "Guardian Approval Requested",
+        "description": f"Refill authorization request sent to {approval_entry['guardian_name']}.",
+        "type": "approval"
+    })
+    
+    return {
+        "status": "success",
+        "approval_id": appr_id,
+        "approval_entry": approval_entry,
+        "pending_approvals": pending_approvals,
+        "notifications": guardian.get("notifications", [])
+    }
+
 @app.post("/api/guardian/approve")
 def guardian_approve_endpoint(payload: ApprovalActionRequest):
     """
@@ -164,19 +227,28 @@ def guardian_approve_endpoint(payload: ApprovalActionRequest):
     approval["notes"] = payload.notes
     
     # If medicine order approved, update cart and add activity
-    if approval.get("action_type") == "medicine_order_refill" and payload.decision == "approved":
+    if approval.get("action_type") == "medicine_order_refill":
         cart = db.get("cart", {})
-        cart["status"] = "authorized_order_placed"
-        cart["authorized_by"] = payload.authorized_by
-        
-        # Log to activity
-        db.setdefault("activity_log", []).insert(0, {
-            "id": f"ACT-{uuid.uuid4().hex[:6]}",
-            "time": "Just now",
-            "title": "Medicine Refill Order Authorized",
-            "description": f"Priya Rao approved monthly refill. Dispatch scheduled via Apollo Pharmacy.",
-            "type": "order"
-        })
+        if payload.decision == "approved":
+            cart["status"] = "authorized_order_placed"
+            cart["authorized_by"] = payload.authorized_by
+            db.setdefault("activity_log", []).insert(0, {
+                "id": f"ACT-{uuid.uuid4().hex[:6]}",
+                "time": "Just now",
+                "title": "Medicine Refill Order Authorized",
+                "description": f"{payload.authorized_by} approved monthly refill. Dispatch scheduled via Apollo Pharmacy.",
+                "type": "order"
+            })
+        else:
+            cart["status"] = "authorization_rejected"
+            cart["authorized_by"] = f"{payload.authorized_by} (Declined)"
+            db.setdefault("activity_log", []).insert(0, {
+                "id": f"ACT-{uuid.uuid4().hex[:6]}",
+                "time": "Just now",
+                "title": "Refill Request Declined",
+                "description": f"{payload.authorized_by} declined the monthly refill request.",
+                "type": "order"
+            })
     elif approval.get("action_type") == "doctor_appointment_booking" and payload.decision == "approved":
         # Create appointment
         db.setdefault("appointments", []).insert(0, {

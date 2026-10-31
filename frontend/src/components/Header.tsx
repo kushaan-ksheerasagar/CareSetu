@@ -1,5 +1,5 @@
-import React from 'react';
-import { ShieldCheck, Settings, RotateCcw, Heart, Mic, Radio } from 'lucide-react';
+import { ShieldCheck, Settings, RotateCcw, Heart, Radio } from 'lucide-react';
+
 import { PatientProfile } from '../types';
 
 interface HeaderProps {

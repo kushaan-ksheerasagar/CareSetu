@@ -1,15 +1,16 @@
-import { CareSetuState, AgentReasoningResult } from '../types';
+import { CareSetuState, AgentReasoningResult, ApprovalRequest } from '../types';
 import { INITIAL_CARESETU_STATE } from '../data/mockData';
 import { runClientAgentReasoning } from './clientAgentFallback';
 
 const STORAGE_KEY = 'caresetu_local_state';
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
 export class ApiService {
   private backendAvailable: boolean | null = null;
 
   public async checkBackendHealth(): Promise<{ connected: boolean; info?: any }> {
     try {
-      const res = await fetch('/api/health', { method: 'GET' });
+      const res = await fetch(`${API_BASE}/api/health`, { method: 'GET' });
       if (res.ok) {
         const info = await res.json();
         this.backendAvailable = true;
@@ -44,8 +45,7 @@ export class ApiService {
     if (typeof window !== 'undefined') {
       localStorage.removeItem(STORAGE_KEY);
     }
-    // Also trigger backend reset if online
-    fetch('/api/state/reset', { method: 'POST' }).catch(() => {});
+    fetch(`${API_BASE}/api/state/reset`, { method: 'POST' }).catch(() => {});
     return INITIAL_CARESETU_STATE;
   }
 
@@ -55,10 +55,9 @@ export class ApiService {
     language: string = 'English',
     geminiApiKey?: string
   ): Promise<{ result: AgentReasoningResult; nextState: CareSetuState }> {
-    // Attempt backend first if available
     if (this.backendAvailable !== false) {
       try {
-        const res = await fetch('/api/agent/reason', {
+        const res = await fetch(`${API_BASE}/api/agent/reason`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -73,8 +72,7 @@ export class ApiService {
           const result: AgentReasoningResult = await res.json();
           this.backendAvailable = true;
 
-          // Fetch updated state from backend
-          const stateRes = await fetch('/api/state');
+          const stateRes = await fetch(`${API_BASE}/api/state`);
           if (stateRes.ok) {
             const nextState: CareSetuState = await stateRes.json();
             this.saveState(nextState);
@@ -87,10 +85,73 @@ export class ApiService {
       }
     }
 
-    // Client-side fallback
+    // Client fallback
     const { result, nextState } = await runClientAgentReasoning(message, currentState, language, geminiApiKey);
     this.saveState(nextState);
     return { result, nextState };
+  }
+
+  public async requestGuardianApproval(
+    approval: {
+      action_type: string;
+      title?: string;
+      details: any;
+      reason: string;
+      approval_id?: string;
+    },
+    currentState: CareSetuState
+  ): Promise<CareSetuState> {
+    if (this.backendAvailable) {
+      try {
+        const res = await fetch(`${API_BASE}/api/guardian/request-approval`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(approval)
+        });
+        if (res.ok) {
+          const stateRes = await fetch(`${API_BASE}/api/state`);
+          if (stateRes.ok) {
+            const updated = await stateRes.json();
+            this.saveState(updated);
+            return updated;
+          }
+        }
+      } catch (e) {
+        console.warn("Backend request-approval call failed, using local sync", e);
+      }
+    }
+
+    // Local fallback
+    const nextState: CareSetuState = JSON.parse(JSON.stringify(currentState));
+    const newApproval: ApprovalRequest = {
+      id: approval.approval_id || `APPR-${Date.now().toString().slice(-5)}`,
+      action_type: approval.action_type,
+      title: approval.title || `Approval Request: ${approval.action_type.replace(/_/g, ' ')}`,
+      details: approval.details,
+      reason: approval.reason,
+      guardian_name: nextState.guardian.name,
+      guardian_phone: nextState.guardian.phone,
+      status: 'pending',
+      created_at: 'Just now'
+    };
+    nextState.guardian.pending_approvals.unshift(newApproval);
+    nextState.guardian.notifications.unshift({
+      id: `NOTIF-${Date.now()}`,
+      timestamp: 'Just now',
+      title: 'Action Needs Authorization',
+      message: approval.reason,
+      priority: 'high',
+      read: false
+    });
+    nextState.activity_log.unshift({
+      id: `ACT-${Date.now()}`,
+      time: 'Just now',
+      title: 'Guardian Approval Requested',
+      description: `Refill authorization request sent to ${nextState.guardian.name}.`,
+      type: 'approval'
+    });
+    this.saveState(nextState);
+    return nextState;
   }
 
   public async approveGuardianAction(
@@ -101,7 +162,7 @@ export class ApiService {
   ): Promise<CareSetuState> {
     if (this.backendAvailable) {
       try {
-        const res = await fetch('/api/guardian/approve', {
+        const res = await fetch(`${API_BASE}/api/guardian/approve`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -112,7 +173,7 @@ export class ApiService {
           })
         });
         if (res.ok) {
-          const stateRes = await fetch('/api/state');
+          const stateRes = await fetch(`${API_BASE}/api/state`);
           if (stateRes.ok) {
             const updated = await stateRes.json();
             this.saveState(updated);
@@ -134,16 +195,28 @@ export class ApiService {
       approval.decided_at = "Just now";
       approval.decided_by = "Priya Rao (Guardian)";
 
-      if (approval.action_type === "medicine_order_refill" && decision === "approved") {
-        nextState.cart.status = "authorized_order_placed";
-        nextState.cart.authorized_by = "Priya Rao (Guardian Approved)";
-        nextState.activity_log.unshift({
-          id: `ACT-${Date.now()}`,
-          time: "Just now",
-          title: "Medicine Refill Order Authorized",
-          description: "Priya Rao approved monthly refill. Dispatch scheduled via Apollo Pharmacy.",
-          type: "order"
-        });
+      if (approval.action_type === "medicine_order_refill") {
+        if (decision === "approved") {
+          nextState.cart.status = "authorized_order_placed";
+          nextState.cart.authorized_by = "Priya Rao (Guardian Approved)";
+          nextState.activity_log.unshift({
+            id: `ACT-${Date.now()}`,
+            time: "Just now",
+            title: "Medicine Refill Order Authorized",
+            description: "Priya Rao approved monthly refill. Dispatch scheduled via Apollo Pharmacy.",
+            type: "order"
+          });
+        } else {
+          nextState.cart.status = "authorization_rejected";
+          nextState.cart.authorized_by = "Priya Rao (Declined)";
+          nextState.activity_log.unshift({
+            id: `ACT-${Date.now()}`,
+            time: "Just now",
+            title: "Refill Request Declined",
+            description: "Priya Rao declined the monthly refill request.",
+            type: "order"
+          });
+        }
       } else if (approval.action_type === "doctor_appointment_booking" && decision === "approved") {
         nextState.appointments.unshift({
           id: `APT-${Date.now()}`,
