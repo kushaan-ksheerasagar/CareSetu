@@ -118,6 +118,50 @@ TOOL_DECLARATIONS = [
             },
             "required": ["message"]
         }
+    },
+    {
+        "name": "compare_pharmacies",
+        "description": "Compare medicine prices, pack sizes, and delivery speed across multiple pharmacy networks (eVitalRx, MedPay, Apollo, Tata 1mg).",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "medicines": {"type": "ARRAY", "description": "List of medicine names or objects to compare"},
+                "pincode": {"type": "STRING", "description": "Delivery PIN code (e.g. 560003)"}
+            }
+        }
+    },
+    {
+        "name": "select_pharmacy_option",
+        "description": "Select a specific pharmacy option (e.g. medpay, evitalrx) and prepare an authorized order.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "provider_id": {"type": "STRING", "description": "Provider ID like 'medpay', 'evitalrx', 'app_nav_tata_1mg'"},
+                "order_id": {"type": "STRING", "description": "Optional draft order ID"}
+            },
+            "required": ["provider_id"]
+        }
+    },
+    {
+        "name": "track_pharmacy_order",
+        "description": "Check real-time delivery status along the 16-stage order lifecycle.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "order_id": {"type": "STRING", "description": "CareSetu order identifier"}
+            },
+            "required": ["order_id"]
+        }
+    },
+    {
+        "name": "launch_pharmacy_app_navigation",
+        "description": "Prepare assisted checkout navigation link for official pharmacy platforms (Tata 1mg, Apollo 24/7).",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "provider_id": {"type": "STRING", "description": "Platform ID (e.g. 'app_nav_tata_1mg', 'app_nav_apollo')"}
+            }
+        }
     }
 ]
 
@@ -127,6 +171,8 @@ You assist Sri Ramachandra Rao (age 72) in Bangalore. His primary caregiver/guar
 
 CORE PRINCIPLES:
 1. AI COORDINATES. HUMANS AUTHORIZE.
+   You coordinate healthcare tasks across multiple pharmacies, but never autonomously complete financial payments, change prescription dosages, or order medicines without explicit human/guardian authorization.
+   When medicine refills are requested, use `compare_pharmacies` to compare options across eVitalRx, MedPay, and partner apps to find the best price and fastest delivery.
    You coordinate healthcare tasks, but never autonomously complete financial payments, change prescription dosages, or order medicines without explicit human/guardian authorization.
 2. ELDERLY-FRIENDLY TONE:
    Be warm, respectful, concise, and reassuring. Address him respectfully (e.g., 'Ramachandra ji', 'Uncle ji', 'Namaste'). Speak clearly in plain language.
@@ -248,16 +294,10 @@ def run_deterministic_agent_reasoning(user_message: str, language: str = "Englis
     
     # Pattern 1: Primary Demo Workflow: "I need the same medicine I ordered last month"
     if ("same medicine" in msg_lower or "ordered last month" in msg_lower or 
-        "refill" in msg_lower or ("order" in msg_lower and "medicine" in msg_lower)):
+        "refill" in msg_lower or ("order" in msg_lower and "medicine" in msg_lower) or
+        ("amlong" in msg_lower and "last month" in msg_lower)):
         
         intent = "Medicine Refill from Medical History"
-        plan = [
-            "Step 1: Retrieve user's previous approved medication order from medical history.",
-            "Step 2: Cross-reference items with verified pharmacy catalogue.",
-            "Step 3: Prepare refill cart with Amlong 5 & Glycomet 500 SR at verified prices.",
-            "Step 4: Check safety threshold & enforce human authorization policy: 'AI coordinates. Humans authorize.'",
-            "Step 5: Ask user whether to confirm order directly or send approval request to daughter Priya."
-        ]
         
         # Tool 1: get_previous_medicine_orders
         t1_res = execute_tool_call("get_previous_medicine_orders", {"patient_id": "PAT-72-BLR"})
@@ -266,47 +306,113 @@ def run_deterministic_agent_reasoning(user_message: str, language: str = "Englis
             "arguments": {"patient_id": "PAT-72-BLR"},
             "result": t1_res
         })
-        
+
+        is_amlong_only = "amlong" in msg_lower and "glycomet" not in msg_lower
+
+        if is_amlong_only:
+            plan = [
+                "Step 1: Retrieve user's previous approved medication order for Amlong 5 from medical history.",
+                "Step 2: Cross-reference items with verified eVitalRx staging pharmacy catalogue.",
+                "Step 3: Prepare refill cart with Amlong 5 at verified catalogue price.",
+                "Step 4: Check safety threshold & enforce human authorization policy: 'AI coordinates. Humans authorize.'",
+                "Step 5: Ask user whether to confirm order directly or send approval request to daughter Priya."
+            ]
+            cart_items = [
+                {
+                    "medicine_id": "MED-001",
+                    "name": "Amlong 5",
+                    "dosage": "5 mg",
+                    "quantity": 30,
+                    "price": 68.0
+                }
+            ]
+            comp_meds = [{"name": "Amlong 5mg Tablet", "quantity": 1}]
+            comp_med_args = ["Amlong 5mg Tablet"]
+            auth_title = "Monthly Medicine Refill (Amlong 5mg)"
+            amount = 68.0
+        else:
+            plan = [
+                "Step 1: Retrieve user's previous approved medication order from medical history.",
+                "Step 2: Cross-reference items with verified pharmacy catalogue.",
+                "Step 3: Prepare refill cart with Amlong 5 & Glycomet 500 SR at verified prices.",
+                "Step 4: Check safety threshold & enforce human authorization policy: 'AI coordinates. Humans authorize.'",
+                "Step 5: Ask user whether to confirm order directly or send approval request to daughter Priya."
+            ]
+            cart_items = [
+                {
+                    "medicine_id": "MED-001",
+                    "name": "Amlong 5",
+                    "dosage": "5 mg",
+                    "quantity": 30,
+                    "price": 68.0
+                },
+                {
+                    "medicine_id": "MED-002",
+                    "name": "Glycomet 500 SR",
+                    "dosage": "500 mg SR",
+                    "quantity": 60,
+                    "price": 82.0
+                }
+            ]
+            comp_meds = [{"name": "Amlong 5mg Tablet", "quantity": 1}, {"name": "Glycomet 500 SR", "quantity": 1}]
+            comp_med_args = ["Amlong 5mg Tablet", "Glycomet 500 SR"]
+            auth_title = "Monthly Medicine Refill (Amlong 5 + Glycomet 500 SR)"
+            amount = 150.0
+
         # Tool 2: prepare_medicine_cart with previously approved medicines
-        cart_items = [
-            {
-                "medicine_id": "MED-001",
-                "name": "Amlong 5",
-                "dosage": "5 mg",
-                "quantity": 30,
-                "price": 68.0
-            },
-            {
-                "medicine_id": "MED-002",
-                "name": "Glycomet 500 SR",
-                "dosage": "500 mg SR",
-                "quantity": 60,
-                "price": 82.0
-            }
-        ]
         t2_res = execute_tool_call("prepare_medicine_cart", {"items": cart_items})
         executed_tools.append({
             "tool_name": "prepare_medicine_cart",
             "arguments": {"items": cart_items},
             "result": t2_res
         })
-        
+
+        # Tool 3: compare_pharmacies across live eVitalRx staging and partner networks
+        t3_res = execute_tool_call("compare_pharmacies", {
+            "medicines": comp_meds,
+            "pincode": "560003"
+        })
+        executed_tools.append({
+            "tool_name": "compare_pharmacies",
+            "arguments": {"medicines": comp_med_args, "pincode": "560003"},
+            "result": t3_res
+        })
+
+        pharmacy_name = "eVitalRx Staging / Local Chemist"
+        draft_order_id = None
+        if t3_res and isinstance(t3_res, dict):
+            draft_order_id = t3_res.get("draft_order_id")
+            if t3_res.get("options") and len(t3_res["options"]) > 0:
+                best = t3_res["options"][0]
+                pharmacy_name = best.get("pharmacy_name", pharmacy_name)
+                amount = best.get("estimated_total", amount)
+
         requires_authorization = True
         auth_details = {
             "type": "medicine_order_refill",
-            "title": "Monthly Medicine Refill (Amlong 5 + Glycomet 500 SR)",
-            "total_amount": 150.0,
+            "title": auth_title,
+            "total_amount": amount,
             "items": cart_items,
-            "pharmacy": "Apollo Pharmacy - Malleshwaram",
-            "guardian_name": "Priya Rao (Daughter)"
+            "pharmacy": pharmacy_name,
+            "guardian_name": "Priya Rao (Daughter)",
+            "order_id": draft_order_id
         }
         
         if "kannada" in language.lower() or "kn" in language.lower():
-            speech_response = "ನಮಸ್ಕಾರ ರಾಮಚಂದ್ರ ಅವರೇ. ಕಳೆದ ತಿಂಗಳು ನೀವು ತಗೊಂಡಿದ್ದ ಆಮ್ಲಾಂಗ್ 5 ಮತ್ತು ಗ್ಲೈಕೊಮೆಟ್ 500 ಎಸ್ಆರ್ ಔಷಧಿಗಳನ್ನು ಕಾರ್ಟ್‌ಗೆ ಸೇರಿಸಿದ್ದೇನೆ. ಒಟ್ಟು ₹150 ಆಗಿದೆ. ಇದನ್ನು ಆರ್ಡರ್ ಮಾಡಲು ನಿಮ್ಮ ಅನುಮತಿ ಬೇಕು, ಅಥವಾ ನಿಮ್ಮ ಮಗಳು ಪ್ರಿಯಾಗೆ ಕಳುಹಿಸಲೇ?"
+            if is_amlong_only:
+                speech_response = f"ನಮಸ್ಕಾರ ರಾಮಚಂದ್ರ ಅವರೇ. ಕಳೆದ ತಿಂಗಳು ನೀವು ತಗೊಂಡಿದ್ದ ಆಮ್ಲಾಂಗ್ 5 ಔಷಧಿಯನ್ನು ಕಾರ್ಟ್‌ಗೆ ಸೇರಿಸಿದ್ದೇನೆ. ಒಟ್ಟು ₹{int(amount)} ಆಗಿದೆ. ಇದನ್ನು ಆರ್ಡರ್ ಮಾಡಲು ನಿಮ್ಮ ಅನುಮತಿ ಬೇಕು, ಅಥವಾ ನಿಮ್ಮ ಮಗಳು ಪ್ರಿಯಾಗೆ ಕಳುಹಿಸಲೇ?"
+            else:
+                speech_response = f"ನಮಸ್ಕಾರ ರಾಮಚಂದ್ರ ಅವರೇ. ಕಳೆದ ತಿಂಗಳು ನೀವು ತಗೊಂಡಿದ್ದ ಆಮ್ಲಾಂಗ್ 5 ಮತ್ತು ಗ್ಲೈಕೊಮೆಟ್ 500 ಎಸ್ಆರ್ ಔಷಧಿಗಳನ್ನು ಕಾರ್ಟ್‌ಗೆ ಸೇರಿಸಿದ್ದೇನೆ. ಒಟ್ಟು ₹{int(amount)} ಆಗಿದೆ. ಇದನ್ನು ಆರ್ಡರ್ ಮಾಡಲು ನಿಮ್ಮ ಅನುಮತಿ ಬೇಕು, ಅಥವಾ ನಿಮ್ಮ ಮಗಳು ಪ್ರಿಯಾಗೆ ಕಳುಹಿಸಲೇ?"
         elif "hindi" in language.lower() or "hi" in language.lower():
-            speech_response = "नमस्ते रामचंद्र जी। पिछले महीने की आपकी दवाइयां - एमलॉन्ग 5 और ग्लाइकोमेट 500 एसआर - कार्ट में तैयार कर दी हैं। कुल ₹150 का बिल है। क्या आप इसे अभी मंज़ूरी देना चाहते हैं, या आपकी बेटी प्रिया जी को अनुमोदन के लिए भेजूँ?"
+            if is_amlong_only:
+                speech_response = f"नमस्ते रामचंद्र जी। पिछले महीने की आपकी दवा - एमलॉन्ग 5 - कार्ट में तैयार कर दी है। कुल ₹{int(amount)} का बिल है। क्या आप इसे अभी मंज़ूरी देना चाहते हैं, या आपकी बेटी प्रिया जी को अनुमोदन के लिए भेजूँ?"
+            else:
+                speech_response = f"नमस्ते रामचंद्र जी। पिछले महीने की आपकी दवाइयां - एमलॉन्ग 5 और ग्लाइकोमेट 500 एसआर - कार्ट में तैयार कर दी हैं। कुल ₹{int(amount)} का बिल है। क्या आप इसे अभी मंज़ूरी देना चाहते हैं, या आपकी बेटी प्रिया जी को अनुमोदन के लिए भेजूँ?"
         else:
-            speech_response = "Namaste Ramachandra ji. I found your order from last month: Amlong 5mg for your blood pressure and Glycomet 500 SR for sugar. I have prepared your refill cart for ₹150. Would you like to authorize this order now, or shall I ask your daughter Priya to approve it?"
+            if is_amlong_only:
+                speech_response = f"Namaste Ramachandra ji. I found your previous order for Amlong 5mg for your blood pressure. I verified availability on eVitalRx and prepared your refill cart for ₹{amount:.2f}. Would you like to authorize this order now, or shall I ask your daughter Priya to approve it?"
+            else:
+                speech_response = f"Namaste Ramachandra ji. I found your order from last month: Amlong 5mg for your blood pressure and Glycomet 500 SR for sugar. I have prepared your refill cart for ₹{amount:.2f}. Would you like to authorize this order now, or shall I ask your daughter Priya to approve it?"
 
     # Pattern 2: Reminder Creation: "Remind me to take my medicine after breakfast"
     elif "remind" in msg_lower or "reminder" in msg_lower:

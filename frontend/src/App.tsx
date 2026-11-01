@@ -9,6 +9,7 @@ import { DoctorAppointments } from './components/DoctorAppointments';
 import { PrivacySafetyModal } from './components/PrivacySafetyModal';
 import { SettingsModal } from './components/SettingsModal';
 import { apiService } from './services/api';
+import { speechService } from './services/speechService';
 import { Clock, Activity } from 'lucide-react';
 import type { CareSetuState, AgentReasoningResult, AvailableDoctorSlot, PreviousOrder } from './types';
 
@@ -100,7 +101,8 @@ export const App: React.FC = () => {
   };
 
   // Authorize order independently
-  const handleAuthorizeSelf = () => {
+  const handleAuthorizeSelf = (selectedProvider?: string) => {
+    const provider = selectedProvider || 'eVitalRx Verified Network';
     const nextState: CareSetuState = JSON.parse(JSON.stringify(state));
     nextState.cart.status = 'authorized_order_placed';
     nextState.cart.authorized_by = 'Ramachandra Rao (Self Authorized)';
@@ -114,10 +116,14 @@ export const App: React.FC = () => {
     setState(nextState);
     apiService.saveState(nextState);
     setShowOrderModal(false);
+    if (!bolnaActive) {
+      speechService.speak(`Monthly medicine refill authorized. Your order has been placed with ${provider}.`);
+    }
   };
 
   // Request Priya's Approval
-  const handleRequestGuardianApproval = async () => {
+  const handleRequestGuardianApproval = async (selectedProvider?: string) => {
+    const provider = selectedProvider || 'eVitalRx Verified Network';
     const approvalId = `APPR-${Date.now().toString().slice(-5)}`;
     const updatedState = await apiService.requestGuardianApproval(
       {
@@ -135,18 +141,27 @@ export const App: React.FC = () => {
 
     setState(updatedState);
     setShowOrderModal(false);
+    if (!bolnaActive) {
+      speechService.speak(`Authorization request for ${provider} order sent to Priya on WhatsApp. Once she approves, your order will be dispatched.`);
+    }
   };
 
   // Guardian Approves
   const handleGuardianApprove = async (approvalId: string) => {
     const updatedState = await apiService.approveGuardianAction(approvalId, 'approved', state);
     setState(updatedState);
+    if (!bolnaActive) {
+      speechService.speak("Priya has approved the medicine refill request! Apollo Pharmacy is preparing your dispatch.");
+    }
   };
 
   // Guardian Rejects
   const handleGuardianReject = async (approvalId: string) => {
     const updatedState = await apiService.approveGuardianAction(approvalId, 'rejected', state);
     setState(updatedState);
+    if (!bolnaActive) {
+      speechService.speak("Priya reviewed the refill request and declined it.");
+    }
   };
 
   // Toggle Reminder
@@ -170,6 +185,9 @@ export const App: React.FC = () => {
     }
     setState(nextState);
     apiService.saveState(nextState);
+    if (nextStatus === 'completed' && !bolnaActive && target) {
+      speechService.speak(`Dose confirmed. You took your ${target.medicine_name}. Well done!`);
+    }
   };
 
   // Add Reminder
@@ -227,6 +245,9 @@ export const App: React.FC = () => {
     });
     setState(nextState);
     apiService.saveState(nextState);
+    if (!bolnaActive) {
+      speechService.speak(`Consultation booked with ${slot.doctor_name} for ${slot.date} at ${slot.time}. Priya has been notified.`);
+    }
   };
 
   // Reset to fresh demo

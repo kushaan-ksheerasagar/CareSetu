@@ -265,7 +265,18 @@ def send_guardian_notification(message: str, priority: str = "normal") -> Dict[s
     }
 
 # Mapping of tool names to functions
+from backend.tools.pharmacy_tools import (
+    compare_pharmacies,
+    select_pharmacy_option,
+    track_pharmacy_order,
+    launch_pharmacy_app_navigation
+)
+
 HEALTHCARE_TOOLS_REGISTRY = {
+    "compare_pharmacies": compare_pharmacies,
+    "select_pharmacy_option": select_pharmacy_option,
+    "track_pharmacy_order": track_pharmacy_order,
+    "launch_pharmacy_app_navigation": launch_pharmacy_app_navigation,
     "get_previous_medicine_orders": get_previous_medicine_orders,
     "search_medicine": search_medicine,
     "prepare_medicine_cart": prepare_medicine_cart,

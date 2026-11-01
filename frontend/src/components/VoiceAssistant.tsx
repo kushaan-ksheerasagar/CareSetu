@@ -1,5 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Volume2, Sparkles, Send, Bot, User, Radio, ArrowRight } from 'lucide-react';
+import {
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
+  RotateCcw,
+  Square,
+  Sparkles,
+  Send,
+  Bot,
+  User,
+  Radio,
+  ArrowRight
+} from 'lucide-react';
 import { speechService } from '../services/speechService';
 import { bolnaService } from '../services/bolnaWebCall';
 
@@ -29,8 +42,10 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
 }) => {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isVoiceEnabled, setIsVoiceEnabled] = useState(() => speechService.isVoiceEnabled());
   const [currentTranscript, setCurrentTranscript] = useState('');
   const [typedMessage, setTypedMessage] = useState('');
+  const [bolnaStatusNotice, setBolnaStatusNotice] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageEntry[]>([
     {
       id: 'm1',
@@ -42,30 +57,66 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Subscribe to speechService real-time events
+  useEffect(() => {
+    const unsubSpeaking = speechService.subscribeSpeaking(setIsSpeaking);
+    const unsubVoice = speechService.subscribeVoiceEnabled(setIsVoiceEnabled);
+    return () => {
+      unsubSpeaking();
+      unsubVoice();
+    };
+  }, []);
+
+  // Update speechService language when selected
   useEffect(() => {
     speechService.setLanguage(currentLanguage);
   }, [currentLanguage]);
 
-  // When lastResponse changes, speak it using speechService if not using Bolna
+  // When lastResponse changes, speak it aloud in Demo Voice Mode (unless Bolna Web Call is active)
   useEffect(() => {
-    if (lastResponse && !bolnaActive) {
-      setIsSpeaking(true);
-      speechService.speak(
-        lastResponse,
-        () => setIsSpeaking(true),
-        () => setIsSpeaking(false)
-      );
+    if (lastResponse && !bolnaActive && isVoiceEnabled) {
+      speechService.speak(lastResponse);
     }
-  }, [lastResponse, bolnaActive]);
+  }, [lastResponse, bolnaActive, isVoiceEnabled]);
 
+  // If Bolna Live Web Call becomes active, ensure browser speech synthesis is silenced
+  useEffect(() => {
+    if (bolnaActive) {
+      speechService.stopSpeaking();
+    }
+  }, [bolnaActive]);
+
+  // Auto-scroll conversation transcript
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, currentTranscript]);
 
-  const [bolnaStatusNotice, setBolnaStatusNotice] = useState<string | null>(null);
+  // Sync latest agent response into messages list
+  useEffect(() => {
+    if (lastResponse) {
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && last.sender === 'agent' && last.text === lastResponse) {
+          return prev;
+        }
+        return [
+          ...prev,
+          {
+            id: `a-${Date.now()}`,
+            sender: 'agent',
+            text: lastResponse,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }
+        ];
+      });
+    }
+  }, [lastResponse]);
 
   const fallbackToWebSpeech = () => {
+    // Silence any speech before listening
+    speechService.stopSpeaking();
     setIsListening(true);
+
     speechService.startListening(
       (transcript, isFinal) => {
         setCurrentTranscript(transcript);
@@ -85,6 +136,9 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
   };
 
   const handleStartListening = () => {
+    // Stop any ongoing speech immediately
+    speechService.stopSpeaking();
+
     if (isListening) {
       if (bolnaActive) {
         bolnaService.stopWebCall();
@@ -92,11 +146,6 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
       speechService.stopListening();
       setIsListening(false);
       return;
-    }
-
-    if (isSpeaking) {
-      speechService.stopSpeaking();
-      setIsSpeaking(false);
     }
 
     setCurrentTranscript('');
@@ -136,12 +185,15 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
       return;
     }
 
-    // Default High-Fidelity Demo Voice Mode (Web Speech API)
+    // Default Demo Voice Mode (Web Speech API)
     fallbackToWebSpeech();
   };
 
   const submitMessage = async (text: string) => {
     if (!text.trim() || isProcessing) return;
+
+    // Immediately stop any active speech when a new user request is submitted
+    speechService.stopSpeaking();
 
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const userMsg: MessageEntry = {
@@ -157,43 +209,38 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
 
     try {
       await onProcessRequest(text.trim());
-      // Append agent response when done
-      if (lastResponse) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `a-${Date.now()}`,
-            sender: 'agent',
-            text: lastResponse,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          }
-        ]);
-      }
     } catch (err) {
       console.error(err);
     }
   };
 
-  // Sync latest response to conversation history
-  useEffect(() => {
-    if (lastResponse) {
-      setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (last && last.sender === 'agent' && last.text === lastResponse) {
-          return prev;
-        }
-        return [
-          ...prev,
-          {
-            id: `a-${Date.now()}`,
-            sender: 'agent',
-            text: lastResponse,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          }
-        ];
-      });
+  // Voice Control Actions
+  const handleToggleMute = () => {
+    speechService.toggleVoiceEnabled();
+  };
+
+  const handleStopSpeaking = () => {
+    speechService.stopSpeaking();
+  };
+
+  const handleReplayLatest = () => {
+    const agentMsgs = messages.filter((m) => m.sender === 'agent');
+    const latestText = agentMsgs[agentMsgs.length - 1]?.text || lastResponse;
+    if (latestText) {
+      if (!isVoiceEnabled) {
+        // If muted, automatically re-enable voice so user hears their replay
+        speechService.setVoiceEnabled(true);
+      }
+      speechService.speak(latestText);
     }
-  }, [lastResponse]);
+  };
+
+  const handleReplayMessage = (text: string) => {
+    if (!isVoiceEnabled) {
+      speechService.setVoiceEnabled(true);
+    }
+    speechService.speak(text);
+  };
 
   const quickPrompts = [
     {
@@ -222,7 +269,7 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
   return (
     <div className="bg-white rounded-3xl border border-[#E9E4DC] p-5 sm:p-7 shadow-sm transition-all hover:shadow-md">
       {/* Voice Assistant Header */}
-      <div className="flex items-center justify-between border-b border-[#F0EBE3] pb-4 mb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[#F0EBE3] pb-4 mb-5 gap-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-700">
             <Mic className="w-5 h-5" />
@@ -232,13 +279,14 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
               Voice Healthcare Coordinator
             </h2>
             <p className="text-xs text-slate-500 font-medium">
-              Natural voice interaction in English, ಕನ್ನಡ, or हिन्दी
+              Spoken voice interaction in English, ಕನ್ನಡ, or हिन्दी
             </p>
           </div>
         </div>
 
-        {/* Live Audio / Call Mode Status */}
-        <div className="flex items-center gap-2">
+        {/* Live Audio / Call Mode Status & Voice Controls */}
+        <div className="flex items-center flex-wrap gap-2">
+          {/* Mode Pill */}
           {bolnaActive ? (
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-900 border border-purple-200">
               <Radio className="w-3.5 h-3.5 text-purple-600 animate-pulse" />
@@ -247,27 +295,94 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
           ) : (
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-teal-50 text-teal-900 border border-teal-200">
               <span className="w-2 h-2 rounded-full bg-teal-600 animate-pulse"></span>
-              Voice Demo Mode (Web Speech)
+              Demo Voice Mode (Web Speech)
             </span>
           )}
+
+          {/* Speaker / Mute Toggle Button */}
+          <button
+            onClick={handleToggleMute}
+            type="button"
+            title={
+              isVoiceEnabled
+                ? "Spoken AI voice enabled. Click to mute audio responses."
+                : "Spoken AI voice is muted. Click to enable audio responses."
+            }
+            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all shadow-xs border ${
+              isVoiceEnabled
+                ? isSpeaking
+                  ? 'bg-teal-700 text-white border-teal-800 ring-2 ring-teal-400 animate-pulse'
+                  : 'bg-teal-50 text-teal-900 border-teal-200 hover:bg-teal-100'
+                : 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200'
+            }`}
+          >
+            {isVoiceEnabled ? (
+              <>
+                <Volume2 className={`w-3.5 h-3.5 ${isSpeaking ? 'animate-bounce text-white' : 'text-teal-700'}`} />
+                <span>Voice: ON</span>
+              </>
+            ) : (
+              <>
+                <VolumeX className="w-3.5 h-3.5 text-slate-500" />
+                <span>Voice: Muted</span>
+              </>
+            )}
+          </button>
+
+          {/* Replay Latest Response Button */}
+          <button
+            onClick={handleReplayLatest}
+            type="button"
+            disabled={isProcessing || isListening}
+            title="Replay CareSetu's latest response aloud"
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-white border border-[#DDD6C8] text-[#0F294A] hover:bg-[#FAF8F5] transition disabled:opacity-40 shadow-xs"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-teal-700" />
+            <span>Replay</span>
+          </button>
         </div>
       </div>
 
       {/* Main Microphone Interaction Circle */}
-      <div className="flex flex-col items-center justify-center py-6 sm:py-8 bg-[#FAF8F5] rounded-2xl border border-[#EFEAE1] mb-6">
+      <div className="flex flex-col items-center justify-center py-6 sm:py-8 bg-[#FAF8F5] rounded-2xl border border-[#EFEAE1] mb-6 relative">
+        {/* Active Speaking Indicator Banner */}
+        {isSpeaking && (
+          <div className="w-full max-w-md mx-auto mb-4 px-4 py-2 rounded-2xl bg-teal-100 border border-teal-300 text-teal-950 flex items-center justify-between text-xs sm:text-sm font-semibold shadow-xs animate-fade-in">
+            <div className="flex items-center gap-2">
+              <Volume2 className="w-4 h-4 text-teal-800 animate-bounce" />
+              <span>CareSetu is speaking aloud...</span>
+            </div>
+            <button
+              onClick={handleStopSpeaking}
+              type="button"
+              className="px-2.5 py-1 bg-white border border-teal-300 text-teal-900 font-bold rounded-lg hover:bg-teal-50 transition shadow-xs text-xs flex items-center gap-1"
+            >
+              <Square className="w-3 h-3 fill-teal-900" />
+              <span>Stop Speech</span>
+            </button>
+          </div>
+        )}
+
         <div className="relative mb-4">
           {/* Animated rings when active */}
           {(isListening || isSpeaking || isProcessing) && (
             <>
-              <div className="absolute -inset-4 rounded-full bg-teal-500/20 animate-ping"></div>
-              <div className="absolute -inset-8 rounded-full bg-teal-500/10 animate-pulse"></div>
+              <div className="absolute -inset-4 rounded-full bg-teal-500/20 animate-ping pointer-events-none"></div>
+              <div className="absolute -inset-8 rounded-full bg-teal-500/10 animate-pulse pointer-events-none"></div>
             </>
           )}
 
           <button
             onClick={handleStartListening}
             disabled={isProcessing}
-            title={isListening ? "Tap to stop listening" : "Tap to speak with CareSetu"}
+            type="button"
+            title={
+              isListening
+                ? "Tap to stop listening"
+                : isSpeaking
+                ? "Tap to stop CareSetu from speaking"
+                : "Tap to speak with CareSetu"
+            }
             className={`relative w-24 h-24 sm:w-28 sm:h-28 rounded-full flex flex-col items-center justify-center transition-all transform active:scale-95 shadow-xl ${
               isListening
                 ? 'bg-rose-600 text-white shadow-rose-600/40 animate-pulse'
@@ -308,9 +423,7 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
             <div
               key={i}
               className={`w-1 rounded-full transition-all duration-200 ${
-                isListening || isSpeaking
-                  ? 'bg-teal-600 voice-bar'
-                  : 'bg-slate-300 h-2'
+                isListening || isSpeaking ? 'bg-teal-600 voice-bar' : 'bg-slate-300 h-2'
               }`}
               style={{
                 height: isListening || isSpeaking ? `${h}px` : '4px',
@@ -327,8 +440,10 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
             : isProcessing
             ? statusMessage || "CareSetu is planning and selecting tools..."
             : isSpeaking
-            ? "CareSetu is answering..."
-            : "Tap the big microphone and speak in your comfortable pace."}
+            ? "CareSetu is speaking aloud... (Click mic or Stop to silence)"
+            : isVoiceEnabled
+            ? "Tap the big microphone and speak. Spoken audio response is enabled."
+            : "Tap the big microphone and speak. (Spoken audio is muted)"}
         </p>
 
         {/* Bolna Status Notice when fallback occurs */}
@@ -360,7 +475,11 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
           {quickPrompts.map((q, idx) => (
             <button
               key={idx}
-              onClick={() => submitMessage(q.label.replace(/"/g, ''))}
+              type="button"
+              onClick={() => {
+                speechService.stopSpeaking();
+                submitMessage(q.label.replace(/"/g, ''));
+              }}
               disabled={isProcessing}
               className={`p-3 rounded-2xl border text-left flex items-start gap-3 transition-all hover:translate-y-[-1px] ${
                 q.primary
@@ -393,11 +512,16 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
       {/* Transcript Conversation History Box */}
       <div className="border border-[#EFEAE1] rounded-2xl bg-[#FAF9F7] p-4">
         <div className="flex items-center justify-between border-b border-[#EBE5DB] pb-2 mb-3">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
-            Conversation Transcript
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+              Conversation Transcript
+            </span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 font-semibold">
+              Live Text & Audio
+            </span>
+          </div>
           <span className="text-xs text-slate-400 font-medium">
-            Synchronized with Voice Agent
+            Tap speaker to re-listen
           </span>
         </div>
 
@@ -420,9 +544,26 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({
                 }`}
               >
                 <p className="font-medium">{m.text}</p>
-                <span className={`text-[10px] block mt-1 ${m.sender === 'user' ? 'text-slate-300' : 'text-slate-400'}`}>
-                  {m.timestamp}
-                </span>
+                <div className="flex items-center justify-between mt-1 pt-1 border-t border-slate-100/60">
+                  <span
+                    className={`text-[10px] block ${
+                      m.sender === 'user' ? 'text-slate-300' : 'text-slate-400'
+                    }`}
+                  >
+                    {m.timestamp}
+                  </span>
+                  {m.sender === 'agent' && (
+                    <button
+                      onClick={() => handleReplayMessage(m.text)}
+                      type="button"
+                      title="Listen to this message aloud"
+                      className="inline-flex items-center gap-1 text-[11px] text-teal-700 hover:text-teal-900 font-semibold px-1.5 py-0.5 rounded-md hover:bg-teal-50 transition"
+                    >
+                      <Volume2 className="w-3.5 h-3.5" />
+                      <span>Speak</span>
+                    </button>
+                  )}
+                </div>
               </div>
               {m.sender === 'user' && (
                 <div className="w-7 h-7 rounded-lg bg-slate-700 text-white flex items-center justify-center text-xs shrink-0 mt-0.5">

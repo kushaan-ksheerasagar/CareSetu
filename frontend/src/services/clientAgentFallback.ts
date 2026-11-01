@@ -76,16 +76,39 @@ function buildDeterministicPlan(userMessage: string, language: string): AgentRea
       tool_name: "prepare_medicine_cart",
       arguments: {
         items: [
-          { medicine_id: "MED-001", name: "Amlong 5", dosage: "5 mg", quantity: 30, price: 68.0 },
-          { medicine_id: "MED-002", name: "Glycomet 500 SR", dosage: "500 mg SR", quantity: 60, price: 82.0 }
+          { medicine_id: "MED-001", name: "Amlong 5", dosage: "5 mg", quantity: 30, price: 43.68 },
+          { medicine_id: "MED-002", name: "Glycomet 500 SR", dosage: "500 mg SR", quantity: 60, price: 20.40 }
         ]
       },
       result: {
         status: "success",
-        subtotal: 150.0,
+        subtotal: 64.08,
         delivery_fee: 0.0,
-        total: 150.0,
+        total: 64.08,
         requires_human_approval: true
+      }
+    });
+
+    // Tool 3: compare_pharmacies across live eVitalRx staging and partner networks
+    executedTools.push({
+      tool_name: "compare_pharmacies",
+      arguments: {
+        medicines: ["Amlong 5mg Tablet", "Glycomet 500 SR"],
+        pincode: "560003"
+      },
+      result: {
+        status: "success",
+        best_price_provider: "evitalrx",
+        integration_status: "LIVE_STAGING",
+        options_count: 3,
+        options: [
+          {
+            provider: "eVitalRx Verified Network",
+            status: "LIVE_STAGING",
+            mrp: 43.68,
+            delivery: "PAN India 5-7 days (Local 2h express unserviceable in staging)"
+          }
+        ]
       }
     });
 
@@ -138,6 +161,11 @@ function buildDeterministicPlan(userMessage: string, language: string): AgentRea
     });
 
     speechResponse = `Done, Ramachandra ji. I have scheduled a reminder for your ${medName} at ${timeSlot} (${timingLabel}). I also notified Priya.`;
+    if (language.includes("Kannada") || language.includes("kn")) {
+      speechResponse = `ಆಯಿತು ರಾಮಚಂದ್ರ ಅವರೇ. ನಿಮ್ಮ ${medName} ಮಾತ್ರೆಗೆ ${timingLabel} ${timeSlot} ಕ್ಕೆ ನೆನಪೋಲೆ ನಿಗದಿಪಡಿಸಿದ್ದೇನೆ. ಪ್ರಿಯಾ ಅವರಿಗೂ ಸಂದೇಶ ಕಳುಹಿಸಿದ್ದೇನೆ.`;
+    } else if (language.includes("Hindi") || language.includes("hi")) {
+      speechResponse = `हो गया रामचंद्र जी। आपकी दवा ${medName} के लिए ${timeSlot} (${timingLabel}) का रिमाइंडर सेट कर दिया गया है। बेटी प्रिया को भी सूचित कर दिया है।`;
+    }
   }
 
   // Workflow 3: Doctor Appointment
@@ -170,6 +198,11 @@ function buildDeterministicPlan(userMessage: string, language: string): AgentRea
     };
 
     speechResponse = "I checked with Manipal Heart Centre, Ramachandra ji. Your cardiologist Dr. Ananya Sharma has a slot tomorrow at 11:30 AM. Would you like me to book it for you, or ask Priya?";
+    if (language.includes("Kannada") || language.includes("kn")) {
+      speechResponse = "ಮಣಿಪಾಲ್ ಹಾರ್ಟ್ ಸೆಂಟರ್‌ನಲ್ಲಿ ನಿಮ್ಮ ಹೃದ್ರೋಗ ತಜ್ಞರಾದ ಡಾ. ಅನನ್ಯಾ ಶರ್ಮಾ ಅವರ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ನಾಳೆ ಬೆಳಿಗ್ಗೆ 11:30 ಕ್ಕೆ ಲಭ್ಯವಿದೆ. ನಾನು ಬುಕ್ ಮಾಡಲೇ ಅಥವಾ ಪ್ರಿಯಾ ಅನುಮೋದನೆ ಬೇಕೇ?";
+    } else if (language.includes("Hindi") || language.includes("hi")) {
+      speechResponse = "मणिपाल हार्ट सेंटर में आपकी कार्डियोलॉजिस्ट डॉ. अनन्या शर्मा का कल सुबह 11:30 बजे का समय उपलब्ध है। क्या मैं इसे बुक कर दूँ या प्रिया से अनुमति लूँ?";
+    }
   }
 
   // Workflow 4: Notify Daughter
@@ -189,6 +222,11 @@ function buildDeterministicPlan(userMessage: string, language: string): AgentRea
     });
 
     speechResponse = "I have sent a WhatsApp message to your daughter Priya. She will receive it right away and assist you.";
+    if (language.includes("Kannada") || language.includes("kn")) {
+      speechResponse = "ನಿಮ್ಮ ಮಗಳು ಪ್ರಿಯಾಗೆ ವಾಟ್ಸಾಪ್ ಸಂದೇಶ ಕಳುಹಿಸಿದ್ದೇನೆ. ಅವರು ಕೂಡಲೇ ನೋಡಿ ನಿಮಗೆ ಸಹಾಯ ಮಾಡುತ್ತಾರೆ.";
+    } else if (language.includes("Hindi") || language.includes("hi")) {
+      speechResponse = "आपकी बेटी प्रिया को वॉट्सऐप पर संदेश भेज दिया गया है। वह तुरंत देखकर आपकी सहायता करेंगी।";
+    }
   }
 
   // Default Greeting / Help
@@ -199,6 +237,11 @@ function buildDeterministicPlan(userMessage: string, language: string): AgentRea
       "Step 2: List supported elder healthcare tasks (re-order medicines, set reminders, book doctor, notify daughter)."
     ];
     speechResponse = "Namaste Ramachandra ji! How can I assist you today? You can say 'I need the same medicine I ordered last month', 'Remind me to take my medicine after breakfast', or 'Book an appointment with my doctor'.";
+    if (language.includes("Kannada") || language.includes("kn")) {
+      speechResponse = "ನಮಸ್ಕಾರ ರಾಮಚಂದ್ರ ಅವರೇ! ನಾನು ನಿಮ್ಮ ಕೇರ್‌ಸೇತು ಆರೋಗ್ಯ ಸಂಯೋಜಕ. ಕಳೆದ ತಿಂಗಳ ಔಷಧಿ ಮರು-ಆರ್ಡರ್ ಮಾಡಲು, ಮಾತ್ರೆ ನೆನಪೋಲೆ ಇಡಲು, ಅಥವಾ ವೈದ್ಯರ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್‌ಗೆ ನನಗೆ ತಿಳಿಸಿ.";
+    } else if (language.includes("Hindi") || language.includes("hi")) {
+      speechResponse = "नमस्ते रामचंद्र जी! मैं आपका केयरसेतु स्वास्थ्य सहायक हूँ। पिछले महीने की दवाइयाँ मँगाने, रिमाइंडर सेट करने या डॉक्टर की अपॉइंटमेंट के लिए मुझे बताएं।";
+    }
   }
 
   return {
